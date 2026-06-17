@@ -1,0 +1,788 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Transcript → Clean → Report</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone@7.23.6/babel.min.js"></script>
+  <script>
+    // Force the CLASSIC JSX runtime so JSX compiles to React.createElement.
+    // The automatic runtime emits `import { jsx } from "react/jsx-runtime"`,
+    // which Babel injects as a non-module <script> → "Cannot use import
+    // statement outside a module" → #root never mounts (blank page).
+    Babel.registerPreset("react-classic", {
+      presets: [[Babel.availablePresets["react"], { runtime: "classic" }]],
+    });
+  </script>
+  <script src="https://unpkg.com/mammoth/mammoth.browser.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    .scrollbar-thin::-webkit-scrollbar { width: 8px; height: 8px; }
+    .scrollbar-thin::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+  </style>
+</head>
+<body class="bg-slate-50">
+  <div id="root"></div>
+
+  <script type="text/babel" data-presets="react-classic">
+const { useState, useRef, useEffect } = React;
+
+/* =========================================================================
+   1. VTT PARSE ENGINE (pure JS)
+   ========================================================================= */
+function toSeconds(ts) {
+  const parts = ts.trim().split(":").map(parseFloat);
+  if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
+  if (parts.length === 2) return parts[0] * 60 + parts[1];
+  return parts[0] || 0;
+}
+function fmtMMSS(sec) {
+  const m = Math.floor(sec / 60);
+  const s = Math.floor(sec % 60);
+  return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+}
+function stripTags(s) {
+  return s.replace(/<[^>]*>/g, "").trim();
+}
+
+function parseVTT(rawText) {
+  const normalized = rawText.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+  const blocks = normalized.split(/\n\s*\n/);
+  const raw = [];
+
+  for (const block of blocks) {
+    const lines = block.split("\n").map((l) => l.trim()).filter(Boolean);
+    if (!lines.length) continue;
+
+    let tsLine = null;
+    const contentLines = [];
+    for (const line of lines) {
+      if (/^WEBVTT/i.test(line)) continue;
+      if (/^NOTE/i.test(line)) continue;
+      if (/^\d+$/.test(line)) continue;            // sequence number
+      if (line.includes("-->")) { tsLine = line; continue; }
+      contentLines.push(line);
+    }
+    if (!contentLines.length) continue;
+
+    const startRaw = tsLine ? tsLine.split("-->")[0].trim() : "0";
+    const startSec = toSeconds(startRaw);
+
+    let content = contentLines.join(" ");
+    let speaker = "Unknown";
+
+    const vMatch = content.match(/<v\s+([^>]+)>/i);
+    if (vMatch) {
+      speaker = vMatch[1].trim();
+      content = stripTags(content);
+    } else if (/^[^:]{1,40}:\s/.test(content)) {
+      const idx = content.indexOf(": ");
+      speaker = content.slice(0, idx).trim();
+      content = content.slice(idx + 2).trim();
+    } else {
+      content = stripTags(content);
+    }
+    content = stripTags(content);
+    if (!content) continue;
+
+    raw.push({ speaker, startSec, start: fmtMMSS(startSec), text: content });
+  }
+
+  // Merge cue liên tiếp cùng speaker, gap < 2.0s
+  const merged = [];
+  for (const seg of raw) {
+    const prev = merged[merged.length - 1];
+    if (prev && prev.speaker === seg.speaker && seg.startSec - prev.startSec < 2.0) {
+      prev.text = (prev.text + " " + seg.text).trim();
+    } else {
+      merged.push({ ...seg });
+    }
+  }
+
+  // Fallback speaker labels
+  let nextLabel = 0;
+  for (const seg of merged) {
+    if (seg.speaker === "Unknown") {
+      seg.speaker = `Speaker ${String.fromCharCode(65 + nextLabel)}`;
+      nextLabel++;
+    }
+  }
+  return merged;
+}
+
+// Parse transcript thô không phải VTT (file .doc/.docx/.txt đã extract text).
+function parsePlainTranscript(rawText) {
+  const normalized = rawText.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+  const lines = normalized.split("\n").map((l) => l.trim());
+  const segs = [];
+
+  for (const line of lines) {
+    if (!line) continue;
+
+    let m = line.match(/^\*{0,2}\[\s*([^\]]+?)\s*[-–]\s*(\d{1,2}:\d{2}(?::\d{2})?)\s*\]\*{0,2}:?\s*(.*)$/);
+    if (m) {
+      segs.push({ speaker: m[1].trim(), start: m[2], startSec: toSeconds(m[2]), text: m[3].trim() });
+      continue;
+    }
+    m = line.match(/^\*{0,2}\[\s*([^\]]{1,40})\s*\]\*{0,2}:?\s*(.*)$/);
+    if (m) {
+      segs.push({ speaker: m[1].trim(), start: "", startSec: 0, text: m[2].trim() });
+      continue;
+    }
+    m = line.match(/^([^:]{1,40}):\s+(.*)$/);
+    if (m) {
+      segs.push({ speaker: m[1].trim(), start: "", startSec: 0, text: m[2].trim() });
+      continue;
+    }
+    if (segs.length) {
+      segs[segs.length - 1].text = (segs[segs.length - 1].text + " " + line).trim();
+    } else {
+      segs.push({ speaker: "Speaker A", start: "", startSec: 0, text: line });
+    }
+  }
+
+  return segs.filter((s) => s.text);
+}
+
+function segmentsToText(segments) {
+  return segments
+    .map((s) => `[${s.speaker}${s.start ? ` - ${s.start}` : ""}]\n${s.text}`)
+    .join("\n\n");
+}
+
+/* =========================================================================
+   2. RULE COMPILER
+   ========================================================================= */
+const HARD_INSTRUCTION = `Bạn là chuyên gia làm sạch transcript phỏng vấn UX research tiếng Việt.
+
+Nguyên tắc bất biến:
+- Precision > Recall: thà bỏ sót lỗi còn hơn sửa sai từ đúng
+- Giữ nguyên giọng nói tự nhiên, không chuẩn hóa về văn phong formal
+- Không thêm thông tin, không diễn giải, không tóm tắt
+- Giữ nguyên cấu trúc [Speaker - Timestamp] của từng turn
+- Chỉ trả về transcript đã làm sạch, không có giải thích hay chú thích`;
+
+const STAGE_SNIPPETS = {
+  0: `STAGE 0 - PRE-PROCESSING:
+- Chuẩn hóa encoding UTF-8, collapse multiple spaces, trim mỗi dòng
+- Detect giọng miền Nam: nếu có ≥3 từ trong [hổng, hem, hông, dzậy, tui, ổng, bả, dìa, dzô, nhen, nghen, mắc(đắt)] → bật regional ruleset cho Stage 2 và 5
+- Detect topic context theo sliding window 10 câu: [thanh toán/giao dịch | mua sắm online | trải nghiệm app | gia đình/cá nhân | giá cả/tiền]`,
+  1: `STAGE 1 - TOKEN LOCKING:
+- Tuyệt đối không sửa: số điện thoại (10 số bắt đầu 0), mã giao dịch (≥8 ký tự liên tiếp), OTP (4-6 số sau "mã/OTP/xác nhận"), năm lịch (1900-2099)
+- Tuyệt đối không sửa: speaker labels, timestamps, tags [INAUDIBLE], [CROSSTALK]
+- Ma trận quyết định: với bất kỳ token nghi ngờ nào, hỏi: có trong vùng locked không? → Có: bỏ qua hoàn toàn`,
+  2: `STAGE 2 - LỖI ASR NẶNG:
+Brand/App lexicon — replace theo thứ tự ưu tiên:
+  1. Zalopay, ZaloPay, zalo pay → Zalopay
+  2. Ví điện tử: MoMo → MoMo, VNPay → VNPay, vờ en bây/vi en pay → VNPay
+  3. App: Shopee/shoppy/sô pi → Shopee, Grab/grap/gréb → Grab, Traveloka/tra va lô ca → Traveloka
+  4. Ngân hàng: Vietcombank/việt cơm băng → Vietcombank
+Code-switching (auto-fix): vau chờ → voucher, cát bắt → cashback, căm pen → campaign, lai xờ trim → livestream, ắp đết → update, tốp áp → top-up, rì phăn → refund, ô đờ → order, phờ ri síp → freeship
+Code-switching (cần context ±5 token): seo+[giảm/giá/mua/đợt] → sale; linh+[gửi/bấm/click/mở] → link
+Giọng miền Nam tầng 1 (nếu IS_SOUTHERN): dìa/dzề/dia/dề → về; dô/dzô/giô → vào; dới/dzới → với; dzậy/dậy/giậy → vậy; mộk → một; tốk → tốt`,
+  3: `STAGE 3 - SỐ & ĐƠN VỊ:
+Phân biệt "năm" vs số 5:
+  - "5 + năm lịch [1900-2099]" → "năm + số"
+  - Cụm cố định: 5 ngoái/nay/sau/trước/học → năm ngoái/nay/sau/trước/học
+  - "sinh viên/học sinh/năm học + 5 + [1-6]" → thay 5 bằng "năm" (ngoại lệ: "lớp 5" giữ nguyên)
+  - "[một/hai/ba/vài/mấy/nhiều/cả/hơn/khoảng] + 5" (không có đơn vị tiền sau) → "năm"
+Đơn vị tiền (chỉ khi context tiền tệ rõ):
+  - "1 5 triệu" / "1,5 triệu" → "một triệu rưỡi"
+  - rưởi/rưới/rưỡy/ruoi → rưỡi
+  - [số] + ka/kê/ke/cê/ca → [số]k
+  - Nếu IS_SOUTHERN + context tiền: một cũ/cú/cụ → một củ (1tr); một chay/trái → một chai (1tr); một lịt/lịch → một lít (100k)`,
+  4: `STAGE 4 - FILLER & CẢM THÁN:
+Xóa hoàn toàn khi đứng độc lập đầu/giữa câu, không mang nghĩa: Ờ, Ừ, Ừm, Ý, Í, Thì là, Tức là, Kiểu như là, Kiểu là, Thì
+Xóa khi lặp ≥3 lần liên tiếp: "ạ ạ ạ" → "ạ"
+Giữ lại: "ạ" cuối câu đơn lẻ; utterance filler của interviewer → tag [BACKCHANNEL]
+Sửa cảm thán detect sai: hoa(cuối câu)→ha; ác/ách/ắc(cuối câu)→á; nhà/nia/na(cuối)→nha; thối/thui(cuối)→thôi; chữ(cuối khẳng định)→chứ
+Self-correction: "[X]... tức là [Y]" / "không không ý tôi là [Y]" → xóa phần trước, giữ từ Y; từ lặp ≥3 lần liên tiếp → giữ 1`,
+  5: `STAGE 5 - GIỌNG MIỀN NAM (chỉ áp dụng nếu IS_SOUTHERN):
+Giữ nguyên, KHÔNG chuẩn hóa: tui, ổng, bả, chỉ, ảnh, tụi, hổng, hem, hông, mắc(đắt), kêu(gọi), biểu(bảo), coi(xem), mần(làm), nhen, nghen, nè
+Context-based fix (chỉ khi đủ confident, cả 2 điều kiện phải thỏa):
+  - bão+[lớn/mạnh/đến] → thời tiết; bảo+[ai/rằng] → nói
+  - nghĩ+[rằng/là/thấy] → suy nghĩ; nghỉ+[ngơi/làm/việc] → nghỉ ngơi
+  - sạch+[sẽ/bóng] → tính từ; sạc+[pin/điện] → kỹ thuật
+Nếu không đủ confident → giữ nguyên ASR output, không sửa`,
+  6: `STAGE 6 - CÂU & DẤU CÂU:
+Thêm dấu chấm khi kết thúc bằng: rồi, xong, xong rồi, xong xuôi, vậy đó, như vậy, kiểu vậy, ạ (sau ý hoàn chỉnh)
+Thêm dấu hỏi khi kết thúc bằng: không?, chưa?, hả?, ha?, phải không?, đúng không?
+Thêm dấu phẩy trước: thì, mà, nhưng mà, với lại, nên là, cho nên
+"Rồi" đầu mệnh đề mới → tách câu; "Rồi" cuối câu → thêm dấu chấm
+Viết hoa chữ đầu câu sau khi xác định ranh giới
+Nguyên tắc: nếu không đủ confident → KHÔNG thêm dấu câu (không dấu còn hơn dấu sai)`,
+  7: `STAGE 7 - TÊN NGƯỜI:
+Trigger high-confidence: "tôi/mình/em là [X]", "tên tôi/em là [X]", "anh/chị/em [X] ơi"
+Trigger medium (cần whitelist confirm): "anh/chị/em [X]" (không có "ơi"), "gặp/nhờ/hỏi [X]"
+Whitelist họ: Nguyễn, Trần, Lê, Phạm, Huỳnh, Hoàng, Phan, Vũ, Võ, Đặng, Bùi, Đỗ, Hồ, Ngô, Dương, Lý
+Whitelist tên đơn: Minh, Anh, Hương, Lan, Hà, Linh, Trang, Thảo, Mai, Nga, Hoa, Yến, Châu, Vy, Nhi, Thy, Uyên, Tuấn, Hùng, Đức, Nam, Khoa, Dũng, Phong, Long, Tú, Quân, Hải, Trung, Bình, Khang, Kiên
+Tên đơn dễ nhầm: Anh(≠anh đại từ), Hoa(≠hoa danh từ), Nam(≠miền Nam), Bình(≠bình thường) — chỉ capitalize sau trigger rõ ràng
+Session registry: sau khi detect tên X → auto-capitalize tất cả lần xuất hiện tiếp theo
+Không match whitelist → tag [POSSIBLE_NAME: X]`,
+  8: `STAGE 8 - CONTEXT SUBSTITUTION:
+Topic "gia đình/cá nhân": quay → quê (khi context "về nhà/về quê"); bigram check: "về quay" bất thường → sửa; "đi quay phim" tự nhiên → giữ
+Topic "thanh toán": các từ nhầm đã xử lý ở Stage 2 (balance, crash...)
+Chỉ sửa khi bigram kết quả tự nhiên hơn rõ ràng. Nếu cả hai đều tự nhiên → giữ nguyên ASR`,
+};
+
+const FINAL_QA = `STAGE 9 - FINAL QA & TAGGING:
+Đảm bảo các tags chuẩn: [INAUDIBLE], [CS_TERM], [CROSSTALK], [INCOMPLETE], [BACKCHANNEL], [POSSIBLE_NAME: X], [POSSIBLE: X]
+Tổng hợp tất cả vị trí được flag thành block "--- REVIEW QUEUE ---" ở cuối output`;
+
+function compileSystemPrompt(activeStages, customRules) {
+  let prompt = HARD_INSTRUCTION + "\n\n";
+  const sorted = [...activeStages].sort((a, b) => a - b);
+  for (const idx of sorted) {
+    if (STAGE_SNIPPETS[idx]) prompt += STAGE_SNIPPETS[idx] + "\n\n";
+  }
+  prompt += FINAL_QA + "\n\n";
+  if (customRules.trim()) {
+    prompt += `--- Custom Rules (ưu tiên cao nhất) ---\n${customRules.trim()}\n`;
+  }
+  return prompt.trim();
+}
+
+/* =========================================================================
+   3. LLM CALL + CHUNKING (clean step → /api/chat proxy)
+   ========================================================================= */
+async function callLLM(parsedText, systemPrompt, model) {
+  const body = JSON.stringify({
+    model,
+    max_tokens: 4000,
+    // Tắt thinking mode của Qwen — bật sẽ chậm hàng chục giây → gateway 504
+    chat_template_kwargs: { enable_thinking: false },
+    messages: [
+      { role: "system", content: systemPrompt },
+      {
+        role: "user",
+        content: `Đây là transcript thô đã parse:\n\n---\n${parsedText}\n---\n\nÁp dụng các rule trên và trả về transcript đã làm sạch. Chỉ trả về transcript, không giải thích.`,
+      },
+    ],
+  });
+
+  let lastErr;
+  // Server-side proxy also paces + retries on 429; these client retries add headroom so a
+  // busy per-minute MaaS window resolves itself instead of surfacing as a hard failure.
+  const MAX = 4;
+  for (let attempt = 1; attempt <= MAX; attempt++) {
+    try {
+      const response = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body,
+      });
+      if (!response.ok) {
+        let detail = "";
+        try {
+          const err = await response.json();
+          detail = err?.error?.message || err?.message || JSON.stringify(err);
+        } catch (e) {
+          detail = await response.text();
+        }
+        if ((response.status >= 500 || response.status === 429) && attempt < MAX) {
+          lastErr = new Error(`API ${response.status}: ${detail}`);
+          await new Promise((r) => setTimeout(r, 6000 * attempt));
+          continue;
+        }
+        throw new Error(`API ${response.status}: ${detail}`);
+      }
+      const data = await response.json();
+      return data.choices?.map((c) => c.message?.content || "").join("") || "";
+    } catch (e) {
+      lastErr = e;
+      if (attempt < MAX) {
+        await new Promise((r) => setTimeout(r, 4000 * attempt));
+        continue;
+      }
+      throw lastErr;
+    }
+  }
+  throw lastErr;
+}
+
+function chunkByTurns(text, maxTokens = 3000) {
+  const turns = text.split(/\n\s*\n/);
+  const chunks = [];
+  let cur = [];
+  let curTokens = 0;
+  for (const turn of turns) {
+    const t = Math.ceil(turn.length / 4);
+    if (curTokens + t > maxTokens && cur.length) {
+      chunks.push(cur.join("\n\n"));
+      cur = [];
+      curTokens = 0;
+    }
+    cur.push(turn);
+    curTokens += t;
+  }
+  if (cur.length) chunks.push(cur.join("\n\n"));
+  return chunks;
+}
+
+/* =========================================================================
+   4. DOWNLOAD + UTF-8 BASE64
+   ========================================================================= */
+function tsStamp() {
+  const d = new Date();
+  const p = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
+}
+function downloadTxt(content, filename) {
+  const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename || `transcript_cleaned_${tsStamp()}.txt`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+function toB64Utf8(str) {
+  const bytes = new TextEncoder().encode(str);
+  let bin = "";
+  bytes.forEach((b) => (bin += String.fromCharCode(b)));
+  return btoa(bin);
+}
+
+/* =========================================================================
+   5. CLEANED-OUTPUT RENDERER (highlights)
+   ========================================================================= */
+function renderOutput(text) {
+  const qIdx = text.indexOf("--- REVIEW QUEUE ---");
+  const main = qIdx >= 0 ? text.slice(0, qIdx) : text;
+  const queue = qIdx >= 0 ? text.slice(qIdx) : "";
+
+  const renderLine = (line, k) => {
+    const speakerMatch = line.match(/^\*{0,2}\[([^\]]+)\]\*{0,2}:?\s*$/);
+    if (speakerMatch && /\d/.test(speakerMatch[1])) {
+      return <div key={k} className="font-semibold text-indigo-700 mt-3">[{speakerMatch[1]}]</div>;
+    }
+    const parts = [];
+    let last = 0;
+    const regex = /\[(INAUDIBLE|BACKCHANNEL|CROSSTALK|INCOMPLETE|CS_TERM|POSSIBLE_NAME:[^\]]*|POSSIBLE:[^\]]*)\]/g;
+    let m;
+    while ((m = regex.exec(line)) !== null) {
+      if (m.index > last) parts.push(line.slice(last, m.index));
+      const tag = m[1];
+      let cls = "bg-slate-200 text-slate-600";
+      if (tag === "INAUDIBLE") cls = "bg-red-100 text-red-700";
+      else if (tag === "BACKCHANNEL") cls = "bg-slate-200 text-slate-500 italic";
+      else if (tag.startsWith("POSSIBLE_NAME")) cls = "bg-yellow-100 text-yellow-800";
+      else if (tag.startsWith("POSSIBLE")) cls = "bg-orange-100 text-orange-700";
+      else if (tag === "CROSSTALK") cls = "bg-purple-100 text-purple-700";
+      parts.push(
+        <span key={`${k}-${m.index}`} className={`px-1 rounded text-xs font-medium ${cls}`}>[{tag}]</span>
+      );
+      last = m.index + m[0].length;
+    }
+    if (last < line.length) parts.push(line.slice(last));
+    return <div key={k} className="text-slate-700 leading-relaxed">{parts.length ? parts : line || " "}</div>;
+  };
+
+  return (
+    <div>
+      <div>{main.split("\n").map(renderLine)}</div>
+      {queue && (
+        <div className="mt-4 border border-yellow-300 bg-yellow-50 rounded-lg p-3">
+          <div className="flex items-center gap-2 text-yellow-800 font-semibold text-sm mb-2">
+            <span>⚠️</span> Review Queue
+          </div>
+          <pre className="text-xs text-yellow-900 whitespace-pre-wrap font-mono">{queue.replace("--- REVIEW QUEUE ---", "").trim()}</pre>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* =========================================================================
+   UI COMPONENTS
+   ========================================================================= */
+// All cleaning stages run in the background — the user never configures them.
+const ALL_STAGES = [0, 1, 2, 3, 4, 5, 6, 7, 8];
+
+const TYPES = [
+  { v: "cs", label: "Cuộc gọi chăm sóc khách hàng" },
+  { v: "ux", label: "Phỏng vấn người dùng" },
+  { v: "meeting", label: "Cuộc họp" },
+];
+
+function Toast({ msg, onClose }) {
+  if (!msg) return null;
+  return (
+    <div className="fixed top-4 right-4 z-50 bg-red-600 text-white px-4 py-3 rounded-lg shadow-lg flex items-center gap-3 max-w-sm">
+      <span className="text-sm">{msg}</span>
+      <button onClick={onClose} className="text-white/80 hover:text-white">✕</button>
+    </div>
+  );
+}
+
+function App() {
+  // --- Step 1: clean ---
+  const [vttRaw, setVttRaw] = useState("");
+  const [vttPreview, setVttPreview] = useState("");
+  const [fileName, setFileName] = useState("");
+  const [parsedSegments, setParsedSegments] = useState([]);
+  const [output, setOutput] = useState("");
+  const [status, setStatus] = useState("idle");
+  const [progress, setProgress] = useState({ current: 0, total: 0 });
+  const [errorMsg, setErrorMsg] = useState("");
+  const [toast, setToast] = useState("");
+  const [copied, setCopied] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
+  const fileRef = useRef(null);
+
+  // --- Step 2: analyze ---
+  const [analysisText, setAnalysisText] = useState("");
+  const [anType, setAnType] = useState("ux");
+  const [anObjectives, setAnObjectives] = useState("");
+  const [anTitle, setAnTitle] = useState("");
+  const [anLang, setAnLang] = useState("auto");
+  const [anStatus, setAnStatus] = useState("idle");
+  const [anError, setAnError] = useState("");
+  const [anWarnings, setAnWarnings] = useState([]);
+  const [reportUrl, setReportUrl] = useState("");
+
+  // Fallback only — the server (/api/chat) forces the configured LLM_MODEL primary.
+  const model = "qwen/qwen3-5-27b";
+  const canRun = parsedSegments.length > 0 && status !== "processing";
+  const canAnalyze = analysisText.trim() && anType && anObjectives.trim() && anStatus !== "processing";
+
+  // When cleaning finishes, seed the analysis textarea (user can still edit before analyzing).
+  useEffect(() => {
+    if (status === "done" && output) setAnalysisText(output);
+  }, [status]);
+
+  function ingestText(text, name) {
+    const isVtt = /WEBVTT/i.test(text.slice(0, 200));
+    const segs = isVtt ? parseVTT(text) : parsePlainTranscript(text);
+    if (!segs.length) {
+      setToast("Không tìm thấy nội dung transcript trong file");
+      return;
+    }
+    setVttRaw(text);
+    setFileName(name);
+    setVttPreview(text.split("\n").filter((l) => l.trim()).slice(0, 5).join("\n"));
+    setParsedSegments(segs);
+    setOutput("");
+    setStatus("idle");
+  }
+
+  function loadFile(file) {
+    if (!file) return;
+    const ext = (file.name.split(".").pop() || "").toLowerCase();
+
+    if (ext === "docx" || ext === "doc") {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        if (!window.mammoth) {
+          setToast("Thư viện đọc file Word chưa tải xong, thử lại sau giây lát");
+          return;
+        }
+        window.mammoth
+          .extractRawText({ arrayBuffer: e.target.result })
+          .then((result) => {
+            const text = String(result.value || "").trim();
+            if (!text) {
+              setToast("File Word rỗng hoặc không đọc được nội dung");
+              return;
+            }
+            ingestText(text, file.name);
+          })
+          .catch(() => {
+            setToast(
+              ext === "doc"
+                ? "Không đọc được .doc (định dạng cũ). Vui lòng lưu lại thành .docx rồi tải lên."
+                : "Không đọc được file Word này"
+            );
+          });
+      };
+      reader.readAsArrayBuffer(file);
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (e) => ingestText(String(e.target.result || ""), file.name);
+    reader.readAsText(file, "utf-8");
+  }
+
+  function reset() {
+    setVttRaw(""); setVttPreview(""); setFileName(""); setParsedSegments([]);
+    setOutput(""); setStatus("idle"); setErrorMsg(""); setProgress({ current: 0, total: 0 });
+    if (fileRef.current) fileRef.current.value = "";
+  }
+
+  // Full reset — clears both the clean step and the report step so the user can start
+  // fresh without reloading the page. Revokes the report blob to avoid leaking it.
+  function newSession() {
+    reset();
+    if (reportUrl) URL.revokeObjectURL(reportUrl);
+    setAnalysisText(""); setAnType("ux"); setAnObjectives(""); setAnTitle("");
+    setAnLang("auto"); setAnStatus("idle"); setAnError(""); setAnWarnings([]); setReportUrl("");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  async function run() {
+    setStatus("processing");
+    setErrorMsg("");
+    setOutput("");
+    const systemPrompt = compileSystemPrompt(ALL_STAGES, "");
+    const fullText = segmentsToText(parsedSegments);
+    const estTokens = Math.ceil(fullText.length / 4);
+
+    try {
+      if (estTokens <= 5000) {
+        setProgress({ current: 1, total: 1 });
+        const res = await callLLM(fullText, systemPrompt, model);
+        setOutput(res);
+      } else {
+        const chunks = chunkByTurns(fullText, 3000);
+        setProgress({ current: 0, total: chunks.length });
+        let acc = "";
+        for (let i = 0; i < chunks.length; i++) {
+          setProgress({ current: i + 1, total: chunks.length });
+          if (i > 0) await new Promise((r) => setTimeout(r, 700));
+          try {
+            const res = await callLLM(chunks[i], systemPrompt, model);
+            acc += (acc ? "\n\n" : "") + res;
+            setOutput(acc);
+          } catch (err) {
+            setOutput(acc);
+            throw new Error(`Xử lý bị gián đoạn tại phần ${i + 1}/${chunks.length}: ${err.message}`);
+          }
+        }
+      }
+      setStatus("done");
+    } catch (err) {
+      setErrorMsg(err.message || "Lỗi kết nối. Vui lòng thử lại.");
+      setStatus("error");
+    }
+  }
+
+  function copyOutput() {
+    navigator.clipboard.writeText(output).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  }
+
+  async function analyze() {
+    if (!canAnalyze) return;
+    setAnStatus("processing");
+    setAnError("");
+    setAnWarnings([]);
+    if (reportUrl) URL.revokeObjectURL(reportUrl);
+    setReportUrl("");
+    try {
+      const base = (fileName ? fileName.replace(/\.[^.]+$/, "") : "transcript");
+      const body = {
+        type: anType,
+        mode: "single",
+        files: [{ name: `${base}_cleaned.txt`, content_base64: toB64Utf8(analysisText), participant: "transcript" }],
+        objectives: anObjectives,
+        options: { study_title: anTitle || null, language: anLang },
+      };
+      const resp = await fetch("/invocations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = await resp.json();
+      setAnWarnings((data.meta && data.meta.warnings) || []);
+      if (data.status === "error") {
+        setAnError(data.error || "unknown");
+        setAnStatus("error");
+        return;
+      }
+      const blob = new Blob([data.html], { type: "text/html" });
+      setReportUrl(URL.createObjectURL(blob));
+      setAnStatus("done");
+    } catch (err) {
+      setAnError(err.message || "Lỗi mạng. Vui lòng thử lại.");
+      setAnStatus("error");
+    }
+  }
+
+  const statusBadge = {
+    idle: null,
+    processing: <span className="text-xs px-2 py-1 rounded-full bg-blue-100 text-blue-700">Đang xử lý{progress.total > 1 ? ` ${progress.current}/${progress.total}` : ""}...</span>,
+    done: <span className="text-xs px-2 py-1 rounded-full bg-green-100 text-green-700">Hoàn tất</span>,
+    error: <span className="text-xs px-2 py-1 rounded-full bg-red-100 text-red-700">Lỗi</span>,
+  }[status];
+
+  return (
+    <div className="max-w-5xl mx-auto px-4 py-8">
+      <Toast msg={toast} onClose={() => setToast("")} />
+
+      <header className="mb-8 flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-800">🧹 Làm sạch &amp; phân tích transcript</h1>
+          <p className="text-slate-600 text-sm mt-1 max-w-2xl">Tải bản ghi phỏng vấn, cuộc gọi hoặc cuộc họp lên. Hệ thống tự dọn sạch lỗi nhận dạng giọng nói rồi tạo báo cáo gọn gàng cho bạn.</p>
+        </div>
+        <button
+          onClick={newSession}
+          className="shrink-0 text-sm px-3 py-2 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-100 transition"
+        >
+          ↻ Bắt đầu phiên mới
+        </button>
+      </header>
+
+      {/* =================== STEP 1 — CLEAN =================== */}
+      <div className="mb-3 text-xs font-semibold uppercase tracking-wide text-indigo-600">Bước 1 · Làm sạch transcript</div>
+
+      {/* Upload */}
+      <section className="mb-6">
+        <h2 className="text-sm font-semibold text-slate-700 mb-2">Tải transcript lên</h2>
+        {!vttRaw ? (
+          <div
+            onClick={() => fileRef.current?.click()}
+            onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+            onDragLeave={() => setDragOver(false)}
+            onDrop={(e) => { e.preventDefault(); setDragOver(false); loadFile(e.dataTransfer.files[0]); }}
+            className={`cursor-pointer border-2 border-dashed rounded-xl p-10 text-center transition ${dragOver ? "border-indigo-500 bg-indigo-50" : "border-slate-300 bg-white hover:border-indigo-400"}`}
+          >
+            <div className="text-3xl mb-2">📄</div>
+            <p className="text-slate-700 text-sm font-medium">Kéo thả file vào đây, hoặc bấm để chọn</p>
+            <p className="text-slate-500 text-xs mt-1">Hỗ trợ file .vtt, .docx và .txt</p>
+            <input ref={fileRef} type="file" accept=".vtt,.docx,.doc,.txt,text/vtt,text/plain,application/vnd.openxmlformats-officedocument.wordprocessingml.document" className="hidden" onChange={(e) => loadFile(e.target.files[0])} />
+          </div>
+        ) : (
+          <div className="bg-white rounded-xl border border-slate-200 p-4">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-sm font-medium text-slate-700">📎 {fileName} · {parsedSegments.length} lượt thoại</span>
+              <button onClick={reset} className="text-xs text-slate-600 hover:text-slate-800 hover:underline">Đổi file</button>
+            </div>
+            <pre className="text-xs bg-slate-50 rounded p-3 overflow-auto scrollbar-thin text-slate-700 max-h-32 whitespace-pre-wrap">{vttPreview}</pre>
+            <button
+              onClick={run}
+              disabled={!canRun}
+              className={`mt-4 w-full py-3 rounded-xl font-medium text-white transition ${canRun ? "bg-indigo-600 hover:bg-indigo-700" : "bg-slate-300 cursor-not-allowed"}`}
+            >
+              {status === "processing" ? `Đang làm sạch${progress.total > 1 ? ` (phần ${progress.current}/${progress.total})` : ""}…` : "Làm sạch transcript"}
+            </button>
+            <p className="text-xs text-slate-500 mt-2">Bản ghi dài có thể mất một chút thời gian — bạn cứ để cửa sổ này mở nhé.</p>
+          </div>
+        )}
+      </section>
+
+      {/* Cleaned output */}
+      <section className="mb-10">
+        <div className="flex items-center justify-between mb-2">
+          <h2 className="text-sm font-semibold text-slate-700">Bản đã làm sạch {statusBadge}</h2>
+          {output && (
+            <div className="space-x-2">
+              <button onClick={copyOutput} className="text-xs px-3 py-1.5 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50">{copied ? "✓ Đã sao chép" : "Sao chép"}</button>
+              <button onClick={() => downloadTxt(output)} className="text-xs px-3 py-1.5 rounded-lg bg-slate-800 text-white hover:bg-slate-700">Tải .txt</button>
+            </div>
+          )}
+        </div>
+        <div className="bg-white rounded-xl border border-slate-200 p-4 min-h-[160px]">
+          {errorMsg && <div className="text-sm text-red-600 mb-3">{errorMsg}</div>}
+          {output ? renderOutput(output) : <p className="text-slate-500 text-sm">Bản đã làm sạch sẽ hiện ở đây sau khi xử lý.</p>}
+        </div>
+      </section>
+
+      {/* =================== STEP 2 — ANALYZE =================== */}
+      <div className="mb-3 text-xs font-semibold uppercase tracking-wide text-indigo-600 border-t border-slate-200 pt-6">Bước 2 · Tạo báo cáo</div>
+
+      <section className="mb-6">
+        <h2 className="text-sm font-semibold text-slate-700 mb-2">Nội dung phân tích</h2>
+        <div className="bg-white rounded-xl border border-slate-200 p-4">
+          <div className="flex items-center justify-between mb-2 gap-3">
+            <span className="text-xs text-slate-600">Tự động lấy từ bước làm sạch — bạn có thể chỉnh lại trước khi tạo báo cáo.</span>
+            {output && (
+              <button onClick={() => setAnalysisText(output)} className="shrink-0 text-xs text-indigo-600 hover:underline">↺ Lấy lại bản đã làm sạch</button>
+            )}
+          </div>
+          <textarea
+            value={analysisText}
+            onChange={(e) => setAnalysisText(e.target.value)}
+            style={{ minHeight: 160 }}
+            className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-mono resize-y"
+            placeholder="Dán hoặc chỉnh sửa nội dung cần phân tích ở đây…"
+          />
+        </div>
+      </section>
+
+      <section className="mb-6">
+        <h2 className="text-sm font-semibold text-slate-700 mb-2">Tuỳ chọn báo cáo</h2>
+        <div className="bg-white rounded-xl border border-slate-200 p-4 space-y-4">
+          <div>
+            <label className="text-sm font-medium text-slate-700">Loại nội dung</label>
+            <div className="flex gap-2 mt-2 flex-wrap">
+              {TYPES.map((t) => (
+                <button
+                  key={t.v}
+                  onClick={() => setAnType(t.v)}
+                  className={`px-3 py-2 rounded-lg text-sm border transition ${anType === t.v ? "border-indigo-600 bg-indigo-50 font-semibold text-indigo-700" : "border-slate-300 text-slate-700 hover:border-indigo-400"}`}
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <label className="text-sm font-medium text-slate-700">Mục tiêu / câu hỏi nghiên cứu <span className="text-red-500">*</span></label>
+            <textarea
+              value={anObjectives}
+              onChange={(e) => setAnObjectives(e.target.value)}
+              style={{ minHeight: 80 }}
+              className="mt-2 w-full px-3 py-2 border border-slate-300 rounded-lg text-sm resize-y"
+              placeholder="Bạn muốn báo cáo trả lời điều gì? VD: hiểu vì sao người dùng bỏ giữa chừng khi thanh toán…"
+            />
+          </div>
+          <div className="grid sm:grid-cols-2 gap-4">
+            <div>
+              <label className="text-sm font-medium text-slate-700">Tên dự án hoặc cuộc gọi <span className="text-slate-400 font-normal">(không bắt buộc)</span></label>
+              <input
+                type="text"
+                value={anTitle}
+                onChange={(e) => setAnTitle(e.target.value)}
+                className="mt-2 w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
+                placeholder="VD: Nghiên cứu Promotion Hub"
+              />
+            </div>
+            <div>
+              <label className="text-sm font-medium text-slate-700">Ngôn ngữ báo cáo</label>
+              <select
+                value={anLang}
+                onChange={(e) => setAnLang(e.target.value)}
+                className="mt-2 w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white"
+              >
+                <option value="auto">Tự động theo transcript</option>
+                <option value="vi">Tiếng Việt</option>
+                <option value="en">English</option>
+              </select>
+            </div>
+          </div>
+
+          <button
+            onClick={analyze}
+            disabled={!canAnalyze}
+            className={`w-full py-3 rounded-xl font-medium text-white transition ${canAnalyze ? "bg-emerald-600 hover:bg-emerald-700" : "bg-slate-300 cursor-not-allowed"}`}
+          >
+            {anStatus === "processing" ? "Đang tạo báo cáo…" : "Tạo báo cáo"}
+          </button>
+
+          {anError && <div className="text-sm text-red-600">Có lỗi xảy ra: {anError}</div>}
+          {anStatus === "done" && reportUrl && (
+            <div className="text-sm text-emerald-700">
+              Xong! <a href={reportUrl} target="_blank" className="font-semibold underline">Mở báo cáo</a> ·{" "}
+              <a href={reportUrl} download="bao-cao.html" className="font-semibold underline">Tải HTML</a>
+            </div>
+          )}
+          {anWarnings.length > 0 && (
+            <div className="text-xs text-amber-700">Lưu ý: {anWarnings.join(" · ")}</div>
+          )}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+  </script>
+</body>
+</html>

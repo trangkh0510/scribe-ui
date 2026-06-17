@@ -1,0 +1,20 @@
+# Secrets — NEVER commit. Chỉ commit các file .example.
+.env
+.greennode.json
+*credentials*.json
+.agentbase/
+
+# Third-party vendored skills bundle (has its own credentials) — do not publish
+greennode-agentbase-skills-main/
+
+# Local tooling / editor state
+.impeccable/
+.claude/settings.local.json
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# OS
+.DS_Store
