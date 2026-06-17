@@ -2,6 +2,8 @@
 
 > *clean-transcript-to-report*
 
+**▶ [Try the live demo](https://endpoint-78db168c-6a9d-454a-bae8-90d257344af5.agentbase-runtime.aiplatform.vngcloud.vn/)** — no setup, runs in your browser.
+
 ### From raw transcript → a report you can actually use. Not "paste it into ChatGPT and pray."
 
 You just wrapped a user interview, a meeting, or a support call. What you have is a recording full of
