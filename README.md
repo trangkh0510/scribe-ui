@@ -1,6 +1,7 @@
 # Scribe
 
-> *clean-transcript-to-report*
+> **Messy transcript in, cited report out.**
+> <sub>clean-transcript-to-report</sub>
 
 **▶ [Try the live demo](https://endpoint-78db168c-6a9d-454a-bae8-90d257344af5.agentbase-runtime.aiplatform.vngcloud.vn/)** — no setup, runs in your browser.
 
