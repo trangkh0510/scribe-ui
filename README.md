@@ -1,18 +1,19 @@
 # Scribe
 
 > **Messy transcript in, cited report out.**
-> <sub>clean-transcript-to-report</sub>
 
-**▶ [Try the live demo](https://endpoint-78db168c-6a9d-454a-bae8-90d257344af5.agentbase-runtime.aiplatform.vngcloud.vn/)** — no setup, runs in your browser.
+**▶ [Try the live demo](https://endpoint-78db168c-6a9d-454a-bae8-90d257344af5.agentbase-runtime.aiplatform.vngcloud.vn/)**.
 
-### From raw transcript → a report you can actually use. Not "paste it into ChatGPT and pray."
+Scribe is an AI agent that turns any messy recording — full of "umm"s, "uh"s, laggy
+pauses, cut-off sentences, and words that make no sense — into a complete, ready-to-use
+analysis report packed with actionable insight.
 
-You just wrapped a user interview, a meeting, or a support call. What you have is a recording full of
-timestamps, repeated speaker names, "um"s and "uh"s, speech-recognition errors, half-finished
-sentences. The usual move: dump the whole blob into a chatbot and get back a generic summary — vague,
-embellished with invented details, and **impossible to trace back to anything the person actually said.**
+Upload a raw transcript from a user interview, a CS call, or an internal meeting. The
+agent cleans up the noise, assigns speakers, pulls out the key findings, maps pain points
+by severity, picks out the quotes that actually matter, and exports a structured report —
+summary, insights, recommendations — in just a few minutes.
 
-**Scribe does it differently.** Two steps, one pipeline, one container:
+**What cribe does:** Two steps, one pipeline
 
 > **1. Clean** — a disciplined *rule engine* scrubs the transcript in the background.
 > **2. Analyze** — turns the clean transcript into a structured HTML report where **every conclusion is backed by a quote.**
