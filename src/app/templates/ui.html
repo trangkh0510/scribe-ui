@@ -130,6 +130,9 @@
     .scrollbar-thin::-webkit-scrollbar { width: 8px; height: 8px; }
     .scrollbar-thin::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
 
+    @keyframes sb-spin { to { transform: rotate(360deg); } }
+    .ti-spin { display:inline-block; animation: sb-spin .8s linear infinite; }
+
     @media (max-width:560px){ .grid-2{grid-template-columns:1fr;} }
   </style>
 </head>
@@ -726,7 +729,7 @@ function App() {
   }
 
   const cleanChip =
-    status === "processing" ? <span className="status-chip status-proc"><i className="ti ti-loader-2"></i> Đang xử lý{progress.total > 1 ? ` ${progress.current}/${progress.total}` : ""}…</span>
+    status === "processing" ? <span className="status-chip status-proc"><i className="ti ti-loader-2 ti-spin"></i> Đang xử lý{progress.total > 1 ? ` ${progress.current}/${progress.total}` : ""}…</span>
     : status === "done" ? <span className="status-chip status-ok"><i className="ti ti-check"></i> Hoàn tất</span>
     : status === "error" ? <span className="status-chip status-err"><i className="ti ti-alert-triangle"></i> Lỗi</span>
     : <span className="status-chip status-ok"><i className="ti ti-check"></i> Sẵn sàng</span>;
@@ -790,7 +793,7 @@ function App() {
             </div>
             <pre className="file-pre scrollbar-thin">{vttPreview}</pre>
             <button className="cta-btn cta-blue" onClick={run} disabled={!canRun}>
-              <i className="ti ti-wand"></i>
+              <i className={status === "processing" ? "ti ti-loader-2 ti-spin" : "ti ti-wand"}></i>
               {status === "processing" ? `Đang làm sạch${progress.total > 1 ? ` (phần ${progress.current}/${progress.total})` : ""}…` : "Làm sạch transcript"}
             </button>
             <p className="dz-s" style={{ marginTop: 10 }}>Bản ghi dài có thể mất một chút thời gian — bạn cứ để cửa sổ này mở nhé.</p>
@@ -886,7 +889,7 @@ function App() {
         </div>
 
         <button className="cta-btn" onClick={analyze} disabled={!canAnalyze}>
-          <i className="ti ti-sparkles"></i>
+          <i className={anStatus === "processing" ? "ti ti-loader-2 ti-spin" : "ti ti-sparkles"}></i>
           {anStatus === "processing" ? "Đang tạo báo cáo…" : "Tạo báo cáo"}
         </button>
 
