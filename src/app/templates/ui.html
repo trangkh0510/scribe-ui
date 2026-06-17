@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Transcript → Clean → Report</title>
+  <title>Scribe · Làm sạch &amp; phân tích transcript</title>
   <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
   <script src="https://unpkg.com/@babel/standalone@7.23.6/babel.min.js"></script>
@@ -18,12 +18,122 @@
   </script>
   <script src="https://unpkg.com/mammoth/mammoth.browser.min.js"></script>
   <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.5.0/dist/tabler-icons.min.css">
   <style>
+    :root{
+      --brand-blue:#0033C9;
+      --brand-green:#00CF6A;
+      --brand-green-dark:#00b85d;
+      --green-text:#00a854;
+      --bg-page:#f7f8fb;
+      --bg-surface:#ffffff;
+      --bg-soft:#f1f3f8;
+      --text-primary:#15181f;
+      --text-secondary:#5b6273;
+      --text-tertiary:#9aa1b2;
+      --border:#e6e8ef;
+      --border-strong:#d3d7e2;
+      --danger:#e24b4a;
+      --radius-card:22px;
+      --radius-field:14px;
+      --font-sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+      --font-mono:"SF Mono",ui-monospace,Menlo,Monaco,Consolas,monospace;
+    }
+    *{box-sizing:border-box;}
+    body{margin:0;background:var(--bg-page);font-family:var(--font-sans);color:var(--text-primary);-webkit-font-smoothing:antialiased;padding:2rem 1rem;}
+    .sb-wrap{max-width:640px;margin:0 auto;}
+
+    .sb-header{display:flex;align-items:center;justify-content:space-between;padding:0 6px;margin-bottom:1.5rem;}
+    .logo-box{width:42px;height:42px;border-radius:12px;background:var(--brand-blue);display:flex;align-items:center;justify-content:center;color:#fff;font-weight:600;font-size:14px;box-shadow:0 4px 14px rgba(0,51,201,0.3);}
+    .logo-zp{font-size:11px;color:var(--text-tertiary);border:1.5px dashed var(--border-strong);padding:7px 11px;border-radius:9px;}
+
+    .sb-card{background:var(--bg-surface);border:1.5px solid rgba(0,51,201,0.35);border-radius:var(--radius-card);padding:1.8rem;box-shadow:0 2px 6px rgba(0,0,0,0.04),0 18px 50px rgba(0,51,201,0.07);transition:box-shadow .4s ease,transform .4s ease,border-color .4s ease;margin-bottom:1.4rem;}
+    .sb-card:hover{box-shadow:0 4px 10px rgba(0,0,0,0.05),0 26px 70px rgba(0,51,201,0.12);transform:translateY(-2px);border-color:rgba(0,51,201,0.5);}
+
+    .card-head{display:flex;align-items:center;gap:14px;margin-bottom:1.4rem;}
+    .badge-n{width:34px;height:34px;border-radius:11px;background:var(--brand-blue);color:#fff;font-size:15px;font-weight:600;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 12px rgba(0,51,201,0.32);flex-shrink:0;}
+    .card-title{margin:0;font-size:19px;font-weight:600;}
+    .card-sub{margin:0;font-size:12px;color:var(--text-secondary);}
+
+    .flt{position:relative;margin-bottom:14px;}
+    .flt-in{width:100%;height:62px;padding:24px 16px 8px;border:1.5px solid var(--border);border-radius:var(--radius-field);background:var(--bg-surface);font-size:14px;color:var(--text-primary);outline:none;transition:border-color .25s ease,box-shadow .25s ease;font-family:var(--font-sans);}
+    .flt-in:hover{border-color:var(--border-strong);}
+    .flt-in:focus{border-color:var(--brand-blue);box-shadow:0 0 0 4px rgba(0,51,201,0.1);}
+    .flt-lb{position:absolute;left:16px;top:22px;font-size:14px;color:var(--text-tertiary);pointer-events:none;transition:all .2s ease;}
+    .flt-in:focus ~ .flt-lb,
+    .flt-in:not(:placeholder-shown) ~ .flt-lb,
+    select.flt-in ~ .flt-lb,
+    .flt-static ~ .flt-lb{top:11px;font-size:11px;font-weight:500;letter-spacing:.2px;}
+    .flt textarea.flt-in{height:auto;min-height:96px;padding-top:26px;resize:vertical;line-height:1.55;font-family:var(--font-mono);font-size:13px;}
+    select.flt-in{appearance:none;-webkit-appearance:none;background-image:none;cursor:pointer;}
+
+    .lbl{font-size:13px;font-weight:500;color:var(--text-secondary);display:block;margin-bottom:9px;}
+    .row-between{display:flex;align-items:center;justify-content:space-between;margin-bottom:9px;gap:10px;}
+
+    .seg-group{display:flex;gap:9px;flex-wrap:wrap;margin-bottom:18px;}
+    .seg{font-size:13px;padding:11px 16px;border-radius:12px;border:1.5px solid var(--border);color:var(--text-primary);cursor:pointer;transition:all .25s ease;background:var(--bg-surface);user-select:none;}
+    .seg:hover{border-color:var(--brand-blue);color:var(--brand-blue);transform:translateY(-1px);}
+    .seg.on{border-color:var(--brand-blue);background:rgba(0,51,201,0.06);color:var(--brand-blue);font-weight:600;box-shadow:0 4px 12px rgba(0,51,201,0.14);}
+
+    .grid-2{display:grid;grid-template-columns:1fr 1fr;gap:12px;align-items:start;}
+
+    .dz{border:2px dashed rgba(0,51,201,0.35);border-radius:16px;padding:2.1rem;text-align:center;background:rgba(0,51,201,0.025);transition:all .3s ease;cursor:pointer;margin-bottom:16px;}
+    .dz:hover,.dz.drag{border-color:var(--brand-blue);background:rgba(0,51,201,0.06);}
+    .dz:hover .dz-ic{transform:translateY(-4px);}
+    .dz-ic{font-size:30px;color:var(--brand-blue);display:inline-block;transition:transform .35s ease;}
+    .dz-t{margin:11px 0 2px;font-size:14px;font-weight:500;}
+    .dz-s{margin:0;font-size:12px;color:var(--text-secondary);}
+
+    .filebox{border:1.5px solid var(--border);border-radius:var(--radius-field);padding:14px 16px;margin-bottom:16px;}
+    .file-row{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px;}
+    .file-name{font-size:13px;font-weight:500;display:inline-flex;align-items:center;gap:7px;color:var(--text-primary);}
+    .file-pre{font-size:12px;font-family:var(--font-mono);background:var(--bg-soft);border-radius:10px;padding:11px;max-height:120px;overflow:auto;white-space:pre-wrap;color:var(--text-secondary);margin:0;}
+
+    .status-chip{font-size:11px;padding:4px 10px;border-radius:8px;display:inline-flex;align-items:center;gap:4px;}
+    .status-ok{color:var(--green-text);background:rgba(0,207,106,0.12);}
+    .status-proc{color:var(--brand-blue);background:rgba(0,51,201,0.1);}
+    .status-err{color:var(--danger);background:rgba(226,75,74,0.12);}
+
+    .clean-out{min-height:70px;padding:16px;color:var(--text-tertiary);border:1.5px solid var(--border);border-radius:var(--radius-field);font-size:14px;}
+    .clean-out.filled{color:var(--text-primary);}
+
+    .ghost{font-size:13px;padding:9px 15px;border-radius:11px;border:1.5px solid var(--border);background:var(--bg-surface);cursor:pointer;transition:all .25s ease;color:var(--text-primary);display:inline-flex;align-items:center;gap:5px;font-family:var(--font-sans);}
+    .ghost:hover{border-color:var(--brand-blue);color:var(--brand-blue);transform:translateY(-1px);}
+    .ghost.sm{font-size:12px;padding:6px 11px;}
+    .ghost:disabled{opacity:.5;cursor:not-allowed;transform:none;border-color:var(--border);color:var(--text-tertiary);}
+
+    .cta-btn{width:100%;border:none;border-radius:16px;padding:18px;font-size:15px;font-weight:600;cursor:pointer;transition:all .3s cubic-bezier(.4,0,.2,1);background-color:var(--brand-green);color:#fff;box-shadow:0 6px 18px rgba(0,207,106,0.34);display:inline-flex;align-items:center;justify-content:center;gap:7px;font-family:var(--font-sans);margin-top:20px;}
+    .cta-btn:hover{background-color:var(--brand-green-dark);transform:translateY(-2px);box-shadow:0 12px 30px rgba(0,207,106,0.46);}
+    .cta-btn:active{transform:translateY(0) scale(.99);}
+    .cta-btn:disabled{background-color:#c9ccd6;box-shadow:none;cursor:not-allowed;transform:none;}
+    .cta-blue{background-color:var(--brand-blue);box-shadow:0 6px 18px rgba(0,51,201,0.30);margin-top:4px;}
+    .cta-blue:hover{background-color:#0029a3;box-shadow:0 12px 30px rgba(0,51,201,0.42);}
+
+    .msg-err{font-size:13px;color:var(--danger);margin-top:12px;}
+    .msg-warn{font-size:12px;color:#b7791f;margin-top:10px;}
+
+    /* Success zone */
+    .success-card{border-color:rgba(0,207,106,0.4);box-shadow:0 2px 6px rgba(0,0,0,0.04),0 18px 50px rgba(0,207,106,0.08);text-align:center;padding:2.4rem 1.8rem;}
+    .success-ic{width:64px;height:64px;border-radius:18px;background:rgba(0,207,106,0.13);color:var(--brand-green);display:flex;align-items:center;justify-content:center;font-size:34px;margin:0 auto 1.1rem;}
+    .success-title{margin:0 0 6px;font-size:21px;font-weight:600;}
+    .success-sub{margin:0 auto 1.6rem;font-size:14px;color:var(--text-secondary);max-width:420px;line-height:1.6;}
+    .success-actions{display:flex;gap:12px;justify-content:center;flex-wrap:wrap;}
+    .btn-primary{border:none;border-radius:14px;padding:14px 26px;font-size:14px;font-weight:600;cursor:pointer;transition:all .3s cubic-bezier(.4,0,.2,1);background:var(--brand-green);color:#fff;box-shadow:0 6px 18px rgba(0,207,106,0.34);display:inline-flex;align-items:center;gap:7px;font-family:var(--font-sans);text-decoration:none;}
+    .btn-primary:hover{background:var(--brand-green-dark);transform:translateY(-2px);box-shadow:0 12px 30px rgba(0,207,106,0.46);}
+    .btn-outline{border:1.5px solid var(--brand-blue);border-radius:14px;padding:14px 26px;font-size:14px;font-weight:600;cursor:pointer;transition:all .25s ease;background:var(--bg-surface);color:var(--brand-blue);display:inline-flex;align-items:center;gap:7px;font-family:var(--font-sans);text-decoration:none;}
+    .btn-outline:hover{background:rgba(0,51,201,0.05);transform:translateY(-2px);box-shadow:0 8px 22px rgba(0,51,201,0.16);}
+
+    /* Toast */
+    .toast{position:fixed;top:1rem;right:1rem;z-index:50;background:var(--danger);color:#fff;padding:12px 16px;border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.18);display:flex;align-items:center;gap:12px;max-width:340px;font-size:13px;}
+    .toast button{background:none;border:none;color:rgba(255,255,255,.85);cursor:pointer;font-size:14px;}
+
     .scrollbar-thin::-webkit-scrollbar { width: 8px; height: 8px; }
     .scrollbar-thin::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+
+    @media (max-width:560px){ .grid-2{grid-template-columns:1fr;} }
   </style>
 </head>
-<body class="bg-slate-50">
+<body>
   <div id="root"></div>
 
   <script type="text/babel" data-presets="react-classic">
@@ -398,13 +508,13 @@ function renderOutput(text) {
 }
 
 /* =========================================================================
-   UI COMPONENTS
+   UI
    ========================================================================= */
 // All cleaning stages run in the background — the user never configures them.
 const ALL_STAGES = [0, 1, 2, 3, 4, 5, 6, 7, 8];
 
 const TYPES = [
-  { v: "cs", label: "Cuộc gọi chăm sóc khách hàng" },
+  { v: "cs", label: "Chăm sóc khách hàng" },
   { v: "ux", label: "Phỏng vấn người dùng" },
   { v: "meeting", label: "Cuộc họp" },
 ];
@@ -412,9 +522,9 @@ const TYPES = [
 function Toast({ msg, onClose }) {
   if (!msg) return null;
   return (
-    <div className="fixed top-4 right-4 z-50 bg-red-600 text-white px-4 py-3 rounded-lg shadow-lg flex items-center gap-3 max-w-sm">
-      <span className="text-sm">{msg}</span>
-      <button onClick={onClose} className="text-white/80 hover:text-white">✕</button>
+    <div className="toast">
+      <span>{msg}</span>
+      <button onClick={onClose}>✕</button>
     </div>
   );
 }
@@ -605,179 +715,194 @@ function App() {
     }
   }
 
-  const statusBadge = {
-    idle: null,
-    processing: <span className="text-xs px-2 py-1 rounded-full bg-blue-100 text-blue-700">Đang xử lý{progress.total > 1 ? ` ${progress.current}/${progress.total}` : ""}...</span>,
-    done: <span className="text-xs px-2 py-1 rounded-full bg-green-100 text-green-700">Hoàn tất</span>,
-    error: <span className="text-xs px-2 py-1 rounded-full bg-red-100 text-red-700">Lỗi</span>,
-  }[status];
+  function downloadReport() {
+    if (!reportUrl) return;
+    const a = document.createElement("a");
+    a.href = reportUrl;
+    a.download = "bao-cao.html";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  }
+
+  const cleanChip =
+    status === "processing" ? <span className="status-chip status-proc"><i className="ti ti-loader-2"></i> Đang xử lý{progress.total > 1 ? ` ${progress.current}/${progress.total}` : ""}…</span>
+    : status === "done" ? <span className="status-chip status-ok"><i className="ti ti-check"></i> Hoàn tất</span>
+    : status === "error" ? <span className="status-chip status-err"><i className="ti ti-alert-triangle"></i> Lỗi</span>
+    : <span className="status-chip status-ok"><i className="ti ti-check"></i> Sẵn sàng</span>;
 
   return (
-    <div className="max-w-5xl mx-auto px-4 py-8">
+    <div className="sb-wrap">
       <Toast msg={toast} onClose={() => setToast("")} />
 
-      <header className="mb-8 flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-800">🧹 Làm sạch &amp; phân tích transcript</h1>
-          <p className="text-slate-600 text-sm mt-1 max-w-2xl">Tải bản ghi phỏng vấn, cuộc gọi hoặc cuộc họp lên. Hệ thống tự dọn sạch lỗi nhận dạng giọng nói rồi tạo báo cáo gọn gàng cho bạn.</p>
+      {/* HEADER */}
+      <header className="sb-header">
+        <div style={{ display: "flex", alignItems: "center", gap: 13 }}>
+          <div className="logo-box">SC</div>
+          <div>
+            <p style={{ margin: 0, fontSize: 17, fontWeight: 600 }}>Scribe</p>
+            <p style={{ margin: 0, fontSize: 12, color: "var(--text-secondary)" }}>Làm sạch &amp; phân tích transcript</p>
+          </div>
         </div>
-        <button
-          onClick={newSession}
-          className="shrink-0 text-sm px-3 py-2 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-100 transition"
-        >
-          ↻ Bắt đầu phiên mới
-        </button>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <span className="logo-zp">[ Logo ZaloPay ]</span>
+          <button className="ghost" onClick={newSession}><i className="ti ti-refresh"></i>Phiên mới</button>
+        </div>
       </header>
 
-      {/* =================== STEP 1 — CLEAN =================== */}
-      <div className="mb-3 text-xs font-semibold uppercase tracking-wide text-indigo-600">Bước 1 · Làm sạch transcript</div>
+      {/* STEP 1 — CLEAN */}
+      <section className="sb-card">
+        <div className="card-head">
+          <div className="badge-n">1</div>
+          <div>
+            <p className="card-title">Làm sạch transcript</p>
+            <p className="card-sub">Tải file ghi âm/ghi chép lên để dọn sạch</p>
+          </div>
+        </div>
 
-      {/* Upload */}
-      <section className="mb-6">
-        <h2 className="text-sm font-semibold text-slate-700 mb-2">Tải transcript lên</h2>
         {!vttRaw ? (
           <div
-            onClick={() => fileRef.current?.click()}
+            className={`dz${dragOver ? " drag" : ""}`}
+            onClick={() => fileRef.current && fileRef.current.click()}
             onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
             onDragLeave={() => setDragOver(false)}
             onDrop={(e) => { e.preventDefault(); setDragOver(false); loadFile(e.dataTransfer.files[0]); }}
-            className={`cursor-pointer border-2 border-dashed rounded-xl p-10 text-center transition ${dragOver ? "border-indigo-500 bg-indigo-50" : "border-slate-300 bg-white hover:border-indigo-400"}`}
           >
-            <div className="text-3xl mb-2">📄</div>
-            <p className="text-slate-700 text-sm font-medium">Kéo thả file vào đây, hoặc bấm để chọn</p>
-            <p className="text-slate-500 text-xs mt-1">Hỗ trợ file .vtt, .docx và .txt</p>
-            <input ref={fileRef} type="file" accept=".vtt,.docx,.doc,.txt,text/vtt,text/plain,application/vnd.openxmlformats-officedocument.wordprocessingml.document" className="hidden" onChange={(e) => loadFile(e.target.files[0])} />
-          </div>
-        ) : (
-          <div className="bg-white rounded-xl border border-slate-200 p-4">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-sm font-medium text-slate-700">📎 {fileName} · {parsedSegments.length} lượt thoại</span>
-              <button onClick={reset} className="text-xs text-slate-600 hover:text-slate-800 hover:underline">Đổi file</button>
-            </div>
-            <pre className="text-xs bg-slate-50 rounded p-3 overflow-auto scrollbar-thin text-slate-700 max-h-32 whitespace-pre-wrap">{vttPreview}</pre>
-            <button
-              onClick={run}
-              disabled={!canRun}
-              className={`mt-4 w-full py-3 rounded-xl font-medium text-white transition ${canRun ? "bg-indigo-600 hover:bg-indigo-700" : "bg-slate-300 cursor-not-allowed"}`}
-            >
-              {status === "processing" ? `Đang làm sạch${progress.total > 1 ? ` (phần ${progress.current}/${progress.total})` : ""}…` : "Làm sạch transcript"}
-            </button>
-            <p className="text-xs text-slate-500 mt-2">Bản ghi dài có thể mất một chút thời gian — bạn cứ để cửa sổ này mở nhé.</p>
-          </div>
-        )}
-      </section>
-
-      {/* Cleaned output */}
-      <section className="mb-10">
-        <div className="flex items-center justify-between mb-2">
-          <h2 className="text-sm font-semibold text-slate-700">Bản đã làm sạch {statusBadge}</h2>
-          {output && (
-            <div className="space-x-2">
-              <button onClick={copyOutput} className="text-xs px-3 py-1.5 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50">{copied ? "✓ Đã sao chép" : "Sao chép"}</button>
-              <button onClick={() => downloadTxt(output)} className="text-xs px-3 py-1.5 rounded-lg bg-slate-800 text-white hover:bg-slate-700">Tải .txt</button>
-            </div>
-          )}
-        </div>
-        <div className="bg-white rounded-xl border border-slate-200 p-4 min-h-[160px]">
-          {errorMsg && <div className="text-sm text-red-600 mb-3">{errorMsg}</div>}
-          {output ? renderOutput(output) : <p className="text-slate-500 text-sm">Bản đã làm sạch sẽ hiện ở đây sau khi xử lý.</p>}
-        </div>
-      </section>
-
-      {/* =================== STEP 2 — ANALYZE =================== */}
-      <div className="mb-3 text-xs font-semibold uppercase tracking-wide text-indigo-600 border-t border-slate-200 pt-6">Bước 2 · Tạo báo cáo</div>
-
-      <section className="mb-6">
-        <h2 className="text-sm font-semibold text-slate-700 mb-2">Nội dung phân tích</h2>
-        <div className="bg-white rounded-xl border border-slate-200 p-4">
-          <div className="flex items-center justify-between mb-2 gap-3">
-            <span className="text-xs text-slate-600">Tự động lấy từ bước làm sạch — bạn có thể chỉnh lại trước khi tạo báo cáo.</span>
-            {output && (
-              <button onClick={() => setAnalysisText(output)} className="shrink-0 text-xs text-indigo-600 hover:underline">↺ Lấy lại bản đã làm sạch</button>
-            )}
-          </div>
-          <textarea
-            value={analysisText}
-            onChange={(e) => setAnalysisText(e.target.value)}
-            style={{ minHeight: 160 }}
-            className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-mono resize-y"
-            placeholder="Dán hoặc chỉnh sửa nội dung cần phân tích ở đây…"
-          />
-        </div>
-      </section>
-
-      <section className="mb-6">
-        <h2 className="text-sm font-semibold text-slate-700 mb-2">Tuỳ chọn báo cáo</h2>
-        <div className="bg-white rounded-xl border border-slate-200 p-4 space-y-4">
-          <div>
-            <label className="text-sm font-medium text-slate-700">Loại nội dung</label>
-            <div className="flex gap-2 mt-2 flex-wrap">
-              {TYPES.map((t) => (
-                <button
-                  key={t.v}
-                  onClick={() => setAnType(t.v)}
-                  className={`px-3 py-2 rounded-lg text-sm border transition ${anType === t.v ? "border-indigo-600 bg-indigo-50 font-semibold text-indigo-700" : "border-slate-300 text-slate-700 hover:border-indigo-400"}`}
-                >
-                  {t.label}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div>
-            <label className="text-sm font-medium text-slate-700">Mục tiêu / câu hỏi nghiên cứu <span className="text-red-500">*</span></label>
-            <textarea
-              value={anObjectives}
-              onChange={(e) => setAnObjectives(e.target.value)}
-              style={{ minHeight: 80 }}
-              className="mt-2 w-full px-3 py-2 border border-slate-300 rounded-lg text-sm resize-y"
-              placeholder="Bạn muốn báo cáo trả lời điều gì? VD: hiểu vì sao người dùng bỏ giữa chừng khi thanh toán…"
+            <i className="ti ti-cloud-upload dz-ic"></i>
+            <p className="dz-t">Kéo thả file vào đây, hoặc bấm để chọn</p>
+            <p className="dz-s">Hỗ trợ .vtt, .docx và .txt</p>
+            <input
+              ref={fileRef}
+              type="file"
+              accept=".vtt,.docx,.doc,.txt,text/vtt,text/plain,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+              hidden
+              onChange={(e) => loadFile(e.target.files[0])}
             />
           </div>
-          <div className="grid sm:grid-cols-2 gap-4">
-            <div>
-              <label className="text-sm font-medium text-slate-700">Tên dự án hoặc cuộc gọi <span className="text-slate-400 font-normal">(không bắt buộc)</span></label>
-              <input
-                type="text"
-                value={anTitle}
-                onChange={(e) => setAnTitle(e.target.value)}
-                className="mt-2 w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
-                placeholder="VD: Nghiên cứu Promotion Hub"
-              />
+        ) : (
+          <div className="filebox">
+            <div className="file-row">
+              <span className="file-name"><i className="ti ti-file-text" style={{ color: "var(--brand-blue)" }}></i>{fileName} · {parsedSegments.length} lượt thoại</span>
+              <button className="ghost sm" onClick={reset}><i className="ti ti-refresh"></i>Đổi file</button>
             </div>
-            <div>
-              <label className="text-sm font-medium text-slate-700">Ngôn ngữ báo cáo</label>
-              <select
-                value={anLang}
-                onChange={(e) => setAnLang(e.target.value)}
-                className="mt-2 w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white"
-              >
-                <option value="auto">Tự động theo transcript</option>
-                <option value="vi">Tiếng Việt</option>
-                <option value="en">English</option>
-              </select>
-            </div>
+            <pre className="file-pre scrollbar-thin">{vttPreview}</pre>
+            <button className="cta-btn cta-blue" onClick={run} disabled={!canRun}>
+              <i className="ti ti-wand"></i>
+              {status === "processing" ? `Đang làm sạch${progress.total > 1 ? ` (phần ${progress.current}/${progress.total})` : ""}…` : "Làm sạch transcript"}
+            </button>
+            <p className="dz-s" style={{ marginTop: 10 }}>Bản ghi dài có thể mất một chút thời gian — bạn cứ để cửa sổ này mở nhé.</p>
           </div>
+        )}
 
-          <button
-            onClick={analyze}
-            disabled={!canAnalyze}
-            className={`w-full py-3 rounded-xl font-medium text-white transition ${canAnalyze ? "bg-emerald-600 hover:bg-emerald-700" : "bg-slate-300 cursor-not-allowed"}`}
-          >
-            {anStatus === "processing" ? "Đang tạo báo cáo…" : "Tạo báo cáo"}
-          </button>
-
-          {anError && <div className="text-sm text-red-600">Có lỗi xảy ra: {anError}</div>}
-          {anStatus === "done" && reportUrl && (
-            <div className="text-sm text-emerald-700">
-              Xong! <a href={reportUrl} target="_blank" className="font-semibold underline">Mở báo cáo</a> ·{" "}
-              <a href={reportUrl} download="bao-cao.html" className="font-semibold underline">Tải HTML</a>
-            </div>
-          )}
-          {anWarnings.length > 0 && (
-            <div className="text-xs text-amber-700">Lưu ý: {anWarnings.join(" · ")}</div>
-          )}
+        <div className="row-between">
+          <span className="lbl" style={{ margin: 0 }}>Bản đã làm sạch</span>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            {output && (
+              <React.Fragment>
+                <button className="ghost sm" onClick={copyOutput}><i className="ti ti-copy"></i>{copied ? "Đã sao chép" : "Sao chép"}</button>
+                <button className="ghost sm" onClick={() => downloadTxt(output)}><i className="ti ti-download"></i>Tải .txt</button>
+              </React.Fragment>
+            )}
+            {cleanChip}
+          </div>
+        </div>
+        <div className={`clean-out${output ? " filled" : ""}`}>
+          {errorMsg && <div className="msg-err" style={{ marginTop: 0, marginBottom: 8 }}>{errorMsg}</div>}
+          {output ? renderOutput(output) : <span>Bản đã làm sạch sẽ hiện ở đây sau khi xử lý.</span>}
         </div>
       </section>
+
+      {/* STEP 2 — ANALYZE */}
+      <section className="sb-card">
+        <div className="card-head">
+          <div className="badge-n">2</div>
+          <div>
+            <p className="card-title">Tạo báo cáo</p>
+            <p className="card-sub">Tinh chỉnh nội dung &amp; tuỳ chọn trước khi tạo</p>
+          </div>
+        </div>
+
+        <div className="row-between">
+          <span className="lbl" style={{ margin: 0 }}>Nội dung phân tích</span>
+          {output && (
+            <button className="ghost sm" onClick={() => setAnalysisText(output)}><i className="ti ti-arrow-down"></i>Lấy từ bước làm sạch</button>
+          )}
+        </div>
+        <div className="flt">
+          <textarea
+            className="flt-in"
+            placeholder=" "
+            value={analysisText}
+            onChange={(e) => setAnalysisText(e.target.value)}
+          ></textarea>
+          <span className="flt-lb">Dán hoặc chỉnh sửa nội dung cần phân tích — bạn có thể sửa tay</span>
+        </div>
+
+        <label className="lbl">Loại nội dung</label>
+        <div className="seg-group">
+          {TYPES.map((t) => (
+            <span
+              key={t.v}
+              className={`seg${anType === t.v ? " on" : ""}`}
+              onClick={() => setAnType(t.v)}
+            >
+              {t.label}
+            </span>
+          ))}
+        </div>
+
+        <div className="flt">
+          <input
+            className="flt-in"
+            placeholder=" "
+            value={anObjectives}
+            onChange={(e) => setAnObjectives(e.target.value)}
+          />
+          <span className="flt-lb">Mục tiêu / câu hỏi nghiên cứu *</span>
+        </div>
+
+        <div className="grid-2">
+          <div className="flt" style={{ marginBottom: 0 }}>
+            <input
+              className="flt-in"
+              placeholder=" "
+              value={anTitle}
+              onChange={(e) => setAnTitle(e.target.value)}
+            />
+            <span className="flt-lb">Tên dự án (không bắt buộc)</span>
+          </div>
+          <div className="flt" style={{ marginBottom: 0 }}>
+            <select className="flt-in" value={anLang} onChange={(e) => setAnLang(e.target.value)}>
+              <option value="auto">Tự động theo transcript</option>
+              <option value="vi">Tiếng Việt</option>
+              <option value="en">English</option>
+            </select>
+            <span className="flt-lb">Ngôn ngữ báo cáo</span>
+            <i className="ti ti-chevron-down" style={{ position: "absolute", right: 16, top: 22, color: "var(--text-tertiary)", pointerEvents: "none" }}></i>
+          </div>
+        </div>
+
+        <button className="cta-btn" onClick={analyze} disabled={!canAnalyze}>
+          <i className="ti ti-sparkles"></i>
+          {anStatus === "processing" ? "Đang tạo báo cáo…" : "Tạo báo cáo"}
+        </button>
+
+        {anError && <div className="msg-err">Có lỗi xảy ra: {anError}</div>}
+        {anWarnings.length > 0 && <div className="msg-warn">Lưu ý: {anWarnings.join(" · ")}</div>}
+      </section>
+
+      {/* SUCCESS ZONE */}
+      {anStatus === "done" && reportUrl && (
+        <section className="sb-card success-card">
+          <div className="success-ic"><i className="ti ti-circle-check"></i></div>
+          <p className="success-title">Báo cáo đã sẵn sàng</p>
+          <p className="success-sub">Hệ thống đã làm sạch transcript và tạo báo cáo phân tích. Bạn có thể xem trực tiếp hoặc tải về để chia sẻ.</p>
+          <div className="success-actions">
+            <a className="btn-primary" href={reportUrl} target="_blank" rel="noopener"><i className="ti ti-eye"></i>Xem báo cáo</a>
+            <button className="btn-outline" onClick={downloadReport}><i className="ti ti-download"></i>Tải file</button>
+          </div>
+        </section>
+      )}
     </div>
   );
 }
