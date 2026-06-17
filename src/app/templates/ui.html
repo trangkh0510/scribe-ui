@@ -854,7 +854,7 @@ function App() {
   }
 
   const cleanChip =
-    status === "processing" ? <span className="status-chip status-proc"><i className="ti ti-loader-2 ti-spin"></i> Đang xử lý{progress.total > 1 ? ` ${progress.current}/${progress.total}` : ""} · {cleanElapsed}s</span>
+    status === "processing" ? <span className="status-chip status-proc">Đang xử lý{progress.total > 1 ? ` ${progress.current}/${progress.total}` : ""} · {cleanElapsed}s</span>
     : status === "done" ? <span className="status-chip status-ok"><i className="ti ti-check"></i> Hoàn tất</span>
     : status === "error" ? <span className="status-chip status-err"><i className="ti ti-alert-triangle"></i> Lỗi</span>
     : <span className="status-chip status-ok"><i className="ti ti-check"></i> Sẵn sàng</span>;
@@ -921,19 +921,7 @@ function App() {
               <i className={status === "processing" ? "ti ti-loader-2 ti-spin" : "ti ti-wand"}></i>
               {status === "processing" ? "Đang làm sạch…" : "Làm sạch transcript"}
             </button>
-            {status === "processing" ? (
-              <div style={{ marginTop: 12 }}>
-                <div className={`pbar ${progress.total > 1 ? "det" : "indet"}`}>
-                  <i style={progress.total > 1 ? { transform: `scaleX(${progress.current / progress.total})` } : undefined}></i>
-                </div>
-                <div className="an-panel-head" style={{ marginBottom: 0 }}>
-                  <span className="elapsed">{progress.total > 1 ? `Đang làm sạch — phần ${progress.current}/${progress.total}` : "Đang làm sạch transcript…"}</span>
-                  <span className="elapsed">{cleanElapsed}s</span>
-                </div>
-              </div>
-            ) : (
-              <p className="dz-s" style={{ marginTop: 10 }}>Bản ghi dài có thể mất một chút thời gian — bạn cứ để cửa sổ này mở nhé.</p>
-            )}
+            <p className="dz-s" style={{ marginTop: 10 }}>Bản ghi dài có thể mất một chút thời gian — bạn cứ để cửa sổ này mở nhé.</p>
           </div>
         )}
 
