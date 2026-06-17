@@ -18,13 +18,20 @@ from datetime import datetime, timezone
 
 from dotenv import load_dotenv
 from openai import OpenAI
+from pydantic import ValidationError
 from starlette.routing import Route
-from starlette.responses import HTMLResponse, Response
+from starlette.responses import HTMLResponse, Response, StreamingResponse
 from starlette.concurrency import run_in_threadpool
 from greennode_agentbase import GreenNodeAgentBaseApp, RequestContext, PingStatus
 
 from app import governor
-from app.pipeline import run_pipeline
+from app.pipeline import run_pipeline, AUDIO_EXT
+from app.models import InvocationRequest
+from app.ingest import ingest
+from app.gate import gate
+from app.prepare import prepare
+from app.analyze_single import analyze_single
+from app.render.render import render_report
 
 # Server-side backoff schedule (seconds) for the clean proxy on upstream 429.
 # Shares the per-model governor with /invocations so the two steps don't self-inflict
@@ -107,8 +114,83 @@ async def proxy_chat(request):
     return Response(content=data, status_code=status, media_type=ctype)
 
 
+def _sse(obj) -> str:
+    """Format one Server-Sent Event frame."""
+    return f"data: {json.dumps(obj, ensure_ascii=False)}\n\n"
+
+
+async def analyze_stream(request):
+    """POST /api/analyze-stream — same pipeline as /invocations, but emits a real
+    progress event before each stage (ingest → gate → prepare → analyze → render)
+    so the UI reflects what the system is actually doing. The heavy step is `analyze`
+    (the LLM call); the rest are fast. Falls back-compatible: /invocations is unchanged.
+    """
+    payload = await request.json()
+    client, model = _get_client()
+
+    async def gen():
+        try:
+            try:
+                req = InvocationRequest.model_validate(payload)
+            except ValidationError as exc:
+                yield _sse({"event": "error", "error": f"invalid request: {exc}"})
+                return
+
+            warnings = []
+
+            yield _sse({"event": "step", "key": "ingest", "label": "Đọc & trích xuất transcript"})
+            text_files = []
+            for f in req.files:
+                ext = os.path.splitext(f.name)[1].lower()
+                if ext in AUDIO_EXT:
+                    warnings.append(f"audio not supported yet (Prepare skill pending): {f.name or '<unnamed>'}")
+                else:
+                    text_files.append(f)
+            ing = await run_in_threadpool(ingest, {"files": [f.model_dump() for f in text_files]})
+            warnings += ing.warnings
+            transcripts = ing.transcripts
+
+            yield _sse({"event": "step", "key": "gate", "label": "Kiểm tra điều kiện đầu vào"})
+            g = await run_in_threadpool(gate, req, transcripts)
+            if not g.ok:
+                reason = "; ".join([f"missing: {m}" for m in g.missing] + g.errors)
+                yield _sse({"event": "error", "error": reason})
+                return
+            if not transcripts:
+                yield _sse({"event": "error", "error": "no extractable text from the uploaded file(s)"})
+                return
+
+            yield _sse({"event": "step", "key": "prepare", "label": "Chuẩn bị dữ liệu"})
+            transcripts, notes = await run_in_threadpool(lambda: prepare(transcripts, type=req.type))
+
+            yield _sse({"event": "step", "key": "analyze", "label": "Phân tích bằng AI"})
+            data = await run_in_threadpool(lambda: analyze_single(
+                client, model, type=req.type,
+                transcript_text=transcripts[0].text,
+                objectives=req.objectives,
+                context=req.options.study_title or "",
+                language=req.options.language,
+            ))
+
+            yield _sse({"event": "step", "key": "render", "label": "Dựng báo cáo"})
+            html = await run_in_threadpool(render_report, data)
+
+            yield _sse({"event": "done", "html": html, "report_json": data,
+                        "meta": {"warnings": warnings, "prepare_notes": notes, "model": model,
+                                 "generated_at": datetime.now(timezone.utc).isoformat()}})
+        except Exception as exc:  # never surface an unhandled 500 mid-stream
+            yield _sse({"event": "error", "error": f"unexpected failure: {exc}"})
+
+    return StreamingResponse(
+        gen(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"},
+    )
+
+
 app.router.routes.append(Route("/", serve_ui, methods=["GET"]))
 app.router.routes.append(Route("/api/chat", proxy_chat, methods=["POST"]))
+app.router.routes.append(Route("/api/analyze-stream", analyze_stream, methods=["POST"]))
 
 
 def _get_client():
